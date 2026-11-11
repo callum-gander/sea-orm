@@ -139,6 +139,25 @@ impl
     }
 }
 
+/// The rows of a query on a proxy, as a stream
+///
+/// A proxy returns all rows of a query at once, so the stream yields the rows of one call, as
+/// the rusqlite driver does.
+#[cfg(feature = "stream")]
+pub(crate) fn proxy_rows_stream<'a>(
+    conn: &'a ProxyDatabaseConnection,
+    statement: &Statement,
+) -> impl futures_util::Stream<Item = Result<QueryResult, DbErr>> + Send + 'a {
+    use futures_util::StreamExt;
+
+    futures_util::stream::once(conn.query_all(statement.clone())).flat_map(|rows| {
+        futures_util::stream::iter(match rows {
+            Ok(rows) => itertools::Either::Left(rows.into_iter().map(Ok)),
+            Err(error) => itertools::Either::Right(std::iter::once(Err(error))),
+        })
+    })
+}
+
 impl crate::DatabaseTransaction {
     pub(crate) async fn new_proxy(
         inner: Arc<crate::ProxyDatabaseConnection>,

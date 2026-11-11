@@ -626,4 +626,36 @@ mod tests {
 
         assert_eq!(tuple, Some(("Chocolate".to_owned(), 1)));
     }
+
+    #[smol_potat::test]
+    async fn a_stream_yields_the_rows_of_the_proxy() {
+        use crate::TransactionTrait;
+        use futures_util::TryStreamExt;
+        let db = Database::connect_proxy(DbBackend::Sqlite, Arc::new(Box::new(NameThenId)))
+            .await
+            .unwrap();
+        let chocolate = cake::Model {
+            id: 1,
+            name: "Chocolate".to_owned(),
+        };
+
+        let streamed: Vec<cake::Model> = cake::Entity::find()
+            .stream(&db)
+            .await
+            .unwrap()
+            .try_collect()
+            .await
+            .unwrap();
+        assert_eq!(streamed, [chocolate.clone()]);
+
+        let transaction = db.begin().await.unwrap();
+        let streamed: Vec<cake::Model> = cake::Entity::find()
+            .stream(&transaction)
+            .await
+            .unwrap()
+            .try_collect()
+            .await
+            .unwrap();
+        assert_eq!(streamed, [chocolate]);
+    }
 }

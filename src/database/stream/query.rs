@@ -99,12 +99,7 @@ impl QueryStream {
                 #[cfg(feature = "proxy")]
                 InnerConnection::Proxy(c) => {
                     let start = _metric_callback.is_some().then(std::time::SystemTime::now);
-                    let stream = futures_util::stream::once(async {
-                        Err(DbErr::BackendNotSupported {
-                            db: "Proxy",
-                            ctx: "QueryStream",
-                        })
-                    });
+                    let stream = crate::driver::proxy_rows_stream(c, stmt);
                     let elapsed = start.map(|s| s.elapsed().unwrap_or_default());
                     MetricStream::new(_metric_callback, stmt, elapsed, stream)
                 }
