@@ -385,7 +385,8 @@ impl TransactionTrait for DatabaseConnection {
             }
             #[cfg(feature = "proxy")]
             DatabaseConnectionType::ProxyDatabaseConnection(conn) => {
-                DatabaseTransaction::new_proxy(conn.clone(), None).await
+                DatabaseTransaction::new_proxy(conn.clone(), None, TransactionOptions::default())
+                    .await
             }
             DatabaseConnectionType::Disconnected => Err(conn_err("Disconnected")),
         }
@@ -420,7 +421,12 @@ impl TransactionTrait for DatabaseConnection {
             }
             #[cfg(feature = "proxy")]
             DatabaseConnectionType::ProxyDatabaseConnection(conn) => {
-                DatabaseTransaction::new_proxy(conn.clone(), None).await
+                let options = TransactionOptions {
+                    isolation_level: _isolation_level,
+                    access_mode: _access_mode,
+                    sqlite_transaction_mode: None,
+                };
+                DatabaseTransaction::new_proxy(conn.clone(), None, options).await
             }
             DatabaseConnectionType::Disconnected => Err(conn_err("Disconnected")),
         }
@@ -459,7 +465,12 @@ impl TransactionTrait for DatabaseConnection {
             }
             #[cfg(feature = "proxy")]
             DatabaseConnectionType::ProxyDatabaseConnection(conn) => {
-                DatabaseTransaction::new_proxy(conn.clone(), None).await
+                let options = TransactionOptions {
+                    isolation_level: _isolation_level,
+                    access_mode: _access_mode,
+                    sqlite_transaction_mode: _sqlite_transaction_mode,
+                };
+                DatabaseTransaction::new_proxy(conn.clone(), None, options).await
             }
             DatabaseConnectionType::Disconnected => Err(conn_err("Disconnected")),
         }
@@ -503,9 +514,13 @@ impl TransactionTrait for DatabaseConnection {
             }
             #[cfg(feature = "proxy")]
             DatabaseConnectionType::ProxyDatabaseConnection(conn) => {
-                let transaction = DatabaseTransaction::new_proxy(conn.clone(), None)
-                    .await
-                    .map_err(TransactionError::Connection)?;
+                let transaction = DatabaseTransaction::new_proxy(
+                    conn.clone(),
+                    None,
+                    TransactionOptions::default(),
+                )
+                .await
+                .map_err(TransactionError::Connection)?;
                 transaction.run(_callback).await
             }
             DatabaseConnectionType::Disconnected => Err(conn_err("Disconnected").into()),
@@ -558,7 +573,12 @@ impl TransactionTrait for DatabaseConnection {
             }
             #[cfg(feature = "proxy")]
             DatabaseConnectionType::ProxyDatabaseConnection(conn) => {
-                let transaction = DatabaseTransaction::new_proxy(conn.clone(), None)
+                let options = TransactionOptions {
+                    isolation_level: _isolation_level,
+                    access_mode: _access_mode,
+                    sqlite_transaction_mode: None,
+                };
+                let transaction = DatabaseTransaction::new_proxy(conn.clone(), None, options)
                     .await
                     .map_err(TransactionError::Connection)?;
                 transaction.run(_callback).await

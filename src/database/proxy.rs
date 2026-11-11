@@ -1,4 +1,7 @@
-use crate::{ExecResult, ExecResultHolder, QueryResult, QueryResultRow, Statement, error::*};
+use crate::{
+    ExecResult, ExecResultHolder, QueryResult, QueryResultRow, Statement, TransactionOptions,
+    error::*,
+};
 
 use sea_query::{ArrayType, Value, ValueType};
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
@@ -12,14 +15,31 @@ pub trait ProxyDatabaseTrait: Send + Sync + Debug {
     /// Execute a command in the [ProxyDatabase], and report the number of rows affected
     async fn execute(&self, statement: Statement) -> Result<ProxyExecResult, DbErr>;
 
-    /// Begin a transaction in the [ProxyDatabase]
-    async fn begin(&self) {}
+    /// Returns the proxy that runs one new transaction: its `begin`, its statements, and its
+    /// `commit` or `rollback`
+    ///
+    /// A proxy over a database with several connections returns a proxy on a connection of
+    /// its own, so that two transactions never share a connection. The default returns
+    /// `None`, and the transaction runs on this proxy.
+    async fn transaction_proxy(&self) -> Result<Option<Arc<Box<dyn ProxyDatabaseTrait>>>, DbErr> {
+        Ok(None)
+    }
+
+    /// Begin a transaction in the [ProxyDatabase], or a nested transaction inside the open
+    /// one. The options are the ones that the caller passed for the transaction.
+    async fn begin(&self, _options: TransactionOptions) -> Result<(), DbErr> {
+        Ok(())
+    }
 
     /// Commit a transaction in the [ProxyDatabase]
-    async fn commit(&self) {}
+    async fn commit(&self) -> Result<(), DbErr> {
+        Ok(())
+    }
 
     /// Rollback a transaction in the [ProxyDatabase]
-    async fn rollback(&self) {}
+    async fn rollback(&self) -> Result<(), DbErr> {
+        Ok(())
+    }
 
     /// Start rollback a transaction in the [ProxyDatabase]
     fn start_rollback(&self) {}
@@ -347,5 +367,177 @@ mod tests {
             row.try_get::<String>("", "done"),
             Err(DbErr::Type(_))
         ));
+    }
+
+    /// A proxy that hands each transaction a proxy of its own, and logs where each call ran.
+    /// The engine refuses a `BEGIN` or a `COMMIT` when the statement before it says so.
+    #[derive(Debug)]
+    struct Connections {
+        name: String,
+        log: Arc<std::sync::Mutex<Vec<String>>>,
+        opened: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl Connections {
+        fn record(&self, call: String) -> Result<(), DbErr> {
+            let mut log = self.log.lock().unwrap();
+            let refused = log
+                .last()
+                .is_some_and(|last| last.ends_with(&format!("refuse {call}")));
+            log.push(format!("{}: {call}", self.name));
+            if refused {
+                Err(DbErr::Custom(format!("the engine refused {call}")))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProxyDatabaseTrait for Connections {
+        async fn query(&self, statement: Statement) -> Result<Vec<ProxyRow>, DbErr> {
+            self.record(statement.sql)?;
+            Ok(vec![])
+        }
+
+        async fn execute(&self, statement: Statement) -> Result<ProxyExecResult, DbErr> {
+            self.record(statement.sql)?;
+            Ok(ProxyExecResult::default())
+        }
+
+        async fn transaction_proxy(
+            &self,
+        ) -> Result<Option<Arc<Box<dyn ProxyDatabaseTrait>>>, DbErr> {
+            let number = self
+                .opened
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(Some(Arc::new(Box::new(Connections {
+                name: format!("connection {number}"),
+                log: self.log.clone(),
+                opened: self.opened.clone(),
+            }))))
+        }
+
+        async fn begin(&self, options: crate::TransactionOptions) -> Result<(), DbErr> {
+            match options.sqlite_transaction_mode {
+                Some(mode) => self.record(format!("begin {}", mode.sqlite_keyword())),
+                None => self.record("begin".to_owned()),
+            }
+        }
+
+        async fn commit(&self) -> Result<(), DbErr> {
+            self.record("commit".to_owned())
+        }
+
+        async fn rollback(&self) -> Result<(), DbErr> {
+            self.record("rollback".to_owned())
+        }
+    }
+
+    async fn connections() -> (
+        crate::DatabaseConnection,
+        Arc<std::sync::Mutex<Vec<String>>>,
+    ) {
+        let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let proxy = Connections {
+            name: "shared".to_owned(),
+            log: log.clone(),
+            opened: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        };
+        let db = Database::connect_proxy(DbBackend::Sqlite, Arc::new(Box::new(proxy)))
+            .await
+            .unwrap();
+        (db, log)
+    }
+
+    #[smol_potat::test]
+    async fn each_transaction_runs_on_a_proxy_of_its_own() {
+        use crate::{ConnectionTrait, TransactionTrait};
+        let (db, log) = connections().await;
+
+        let first = db.begin().await.unwrap();
+        let second = db.begin().await.unwrap();
+        first.execute_unprepared("one").await.unwrap();
+        second.execute_unprepared("two").await.unwrap();
+        first.commit().await.unwrap();
+        second.rollback().await.unwrap();
+        db.execute_unprepared("three").await.unwrap();
+
+        assert_eq!(
+            *log.lock().unwrap(),
+            [
+                "connection 0: begin",
+                "connection 1: begin",
+                "connection 0: one",
+                "connection 1: two",
+                "connection 0: commit",
+                "connection 1: rollback",
+                "shared: three",
+            ]
+        );
+    }
+
+    #[smol_potat::test]
+    async fn a_failed_begin_and_a_failed_commit_reach_the_caller() {
+        use crate::{ConnectionTrait, TransactionError, TransactionTrait};
+        let (db, _log) = connections().await;
+
+        db.execute_unprepared("refuse begin").await.unwrap();
+        let begun = db.begin().await;
+        assert_eq!(
+            begun.err(),
+            Some(DbErr::Custom("the engine refused begin".to_owned()))
+        );
+
+        let transaction = db.begin().await.unwrap();
+        transaction
+            .execute_unprepared("refuse commit")
+            .await
+            .unwrap();
+        assert_eq!(
+            transaction.commit().await,
+            Err(DbErr::Custom("the engine refused commit".to_owned()))
+        );
+
+        let outcome = db
+            .transaction::<_, (), DbErr>(|transaction| {
+                Box::pin(async move {
+                    transaction.execute_unprepared("refuse commit").await?;
+                    Ok(())
+                })
+            })
+            .await;
+        assert!(matches!(
+            outcome,
+            Err(TransactionError::Connection(DbErr::Custom(message)))
+                if message == "the engine refused commit"
+        ));
+    }
+
+    #[smol_potat::test]
+    async fn the_transaction_options_reach_the_proxy() {
+        use crate::{SqliteTransactionMode, TransactionOptions, TransactionTrait};
+        let (db, log) = connections().await;
+
+        let transaction = db
+            .begin_with_options(TransactionOptions {
+                sqlite_transaction_mode: Some(SqliteTransactionMode::Immediate),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let nested = transaction.begin().await.unwrap();
+        nested.commit().await.unwrap();
+        transaction.commit().await.unwrap();
+
+        assert_eq!(
+            *log.lock().unwrap(),
+            [
+                "connection 0: begin IMMEDIATE",
+                "connection 0: begin",
+                "connection 0: commit",
+                "connection 0: commit",
+            ]
+        );
     }
 }

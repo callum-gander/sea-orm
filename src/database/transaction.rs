@@ -160,8 +160,12 @@ impl DatabaseTransaction {
                     }
                     #[cfg(feature = "proxy")]
                     InnerConnection::Proxy(c) => {
-                        c.begin().await;
-                        Ok(())
+                        c.begin(TransactionOptions {
+                            isolation_level,
+                            access_mode,
+                            sqlite_transaction_mode,
+                        })
+                        .await
                     }
                     #[allow(unreachable_patterns)]
                     _ => Err(conn_err("Disconnected")),
@@ -274,10 +278,7 @@ impl DatabaseTransaction {
                         Ok(())
                     }
                     #[cfg(feature = "proxy")]
-                    InnerConnection::Proxy(c) => {
-                        c.commit().await;
-                        Ok(())
-                    }
+                    InnerConnection::Proxy(c) => c.commit().await,
                     #[allow(unreachable_patterns)]
                     _ => Err(conn_err("Disconnected")),
                 }
@@ -331,10 +332,7 @@ impl DatabaseTransaction {
                         Ok(())
                     }
                     #[cfg(feature = "proxy")]
-                    InnerConnection::Proxy(c) => {
-                        c.rollback().await;
-                        Ok(())
-                    }
+                    InnerConnection::Proxy(c) => c.rollback().await,
                     #[allow(unreachable_patterns)]
                     _ => Err(conn_err("Disconnected")),
                 }

@@ -1,6 +1,6 @@
 use crate::{
     DatabaseConnection, DatabaseConnectionType, DbBackend, ExecResult, ProxyDatabaseTrait,
-    QueryResult, Statement, debug_print, error::*,
+    QueryResult, Statement, TransactionOptions, debug_print, error::*,
 };
 use std::{fmt::Debug, sync::Arc};
 use tracing::instrument;
@@ -92,19 +92,19 @@ impl ProxyDatabaseConnection {
 
     /// Create a statement block  of SQL statements that execute together.
     #[instrument(level = "trace")]
-    pub async fn begin(&self) {
-        self.proxy.begin().await
+    pub async fn begin(&self, options: TransactionOptions) -> Result<(), DbErr> {
+        self.proxy.begin(options).await
     }
 
     /// Commit a transaction atomically to the database
     #[instrument(level = "trace")]
-    pub async fn commit(&self) {
+    pub async fn commit(&self) -> Result<(), DbErr> {
         self.proxy.commit().await
     }
 
     /// Roll back a faulty transaction
     #[instrument(level = "trace")]
-    pub async fn rollback(&self) {
+    pub async fn rollback(&self) -> Result<(), DbErr> {
         self.proxy.rollback().await
     }
 
@@ -143,17 +143,23 @@ impl crate::DatabaseTransaction {
     pub(crate) async fn new_proxy(
         inner: Arc<crate::ProxyDatabaseConnection>,
         metric_callback: Option<crate::metric::Callback>,
+        options: TransactionOptions,
     ) -> Result<crate::DatabaseTransaction, DbErr> {
         use futures_util::lock::Mutex;
         let backend = inner.get_database_backend();
+        // The proxy can run the transaction on a connection of its own.
+        let inner = match inner.proxy.transaction_proxy().await? {
+            Some(proxy) => Arc::new(crate::ProxyDatabaseConnection::new(backend, proxy)),
+            None => inner,
+        };
         Self::begin(
             Arc::new(Mutex::new(crate::InnerConnection::Proxy(inner))),
             backend,
             metric_callback,
             true,
-            None,
-            None,
-            None,
+            options.isolation_level,
+            options.access_mode,
+            options.sqlite_transaction_mode,
         )
         .await
     }
