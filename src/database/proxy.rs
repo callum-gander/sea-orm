@@ -117,15 +117,35 @@ impl From<ExecResult> for ProxyExecResult {
 pub struct ProxyRow {
     /// The values of the single row
     pub values: BTreeMap<String, Value>,
+    /// The columns of the row in result order, when the row was made by
+    /// [ProxyRow::from_columns]
+    columns: Vec<(String, Value)>,
     /// Turns a value into the form that a Rust type reads, see [ProxyValueConverter]
     converter: Option<Arc<dyn ProxyValueConverter>>,
 }
 
 impl ProxyRow {
     /// Create a new [ProxyRow] from a [BTreeMap]<[String], [Value]>
+    ///
+    /// Read by index, such a row follows the order of the names. Use
+    /// [ProxyRow::from_columns] to keep the order of the result.
     pub fn new(values: BTreeMap<String, Value>) -> Self {
         Self {
             values,
+            columns: Vec::new(),
+            converter: None,
+        }
+    }
+
+    /// Create a new [ProxyRow] from its columns in result order
+    ///
+    /// Read by index, the row follows this order, as the SQLx drivers do: `into_tuple` and
+    /// other reads by position need it. Read by name, a name that occurs more than once
+    /// gives its last value, as with SQLx.
+    pub fn from_columns(columns: Vec<(String, Value)>) -> Self {
+        Self {
+            values: columns.iter().cloned().collect(),
+            columns,
             converter: None,
         }
     }
@@ -165,7 +185,7 @@ impl From<ProxyRow> for BTreeMap<String, Value> {
 
 impl From<ProxyRow> for Vec<(String, Value)> {
     fn from(row: ProxyRow) -> Self {
-        row.values.into_iter().collect()
+        row.into_column_value_tuples().collect()
     }
 }
 
@@ -217,7 +237,11 @@ impl ProxyRow {
         let value = if let Some(name) = index.as_str() {
             self.values.get(name)
         } else if let Some(position) = index.as_usize() {
-            self.values.values().nth(*position)
+            if self.columns.is_empty() {
+                self.values.values().nth(*position)
+            } else {
+                self.columns.get(*position).map(|(_, value)| value)
+            }
         } else {
             unreachable!("Missing ColIdx implementation for ProxyRow");
         };
@@ -244,9 +268,14 @@ impl ProxyRow {
         })
     }
 
-    /// An iterator over the keys and values of a proxy row
+    /// An iterator over the keys and values of a proxy row, in result order when the row
+    /// has one
     pub fn into_column_value_tuples(self) -> impl Iterator<Item = (String, Value)> {
-        self.values.into_iter()
+        if self.columns.is_empty() {
+            self.values.into_iter().collect::<Vec<_>>().into_iter()
+        } else {
+            self.columns.into_iter()
+        }
     }
 }
 
@@ -539,5 +568,62 @@ mod tests {
                 "connection 0: commit",
             ]
         );
+    }
+
+    #[test]
+    fn a_row_from_columns_reads_by_index_in_result_order() {
+        let row = crate::QueryResult::from(ProxyRow::from_columns(vec![
+            ("name".to_owned(), "Ann".into()),
+            ("email".to_owned(), "ann@example.org".into()),
+            ("id".to_owned(), 1i64.into()),
+            ("id".to_owned(), 2i64.into()),
+        ]));
+
+        assert_eq!(row.try_get_by_index::<String>(0), Ok("Ann".to_owned()));
+        assert_eq!(
+            row.try_get_by_index::<String>(1),
+            Ok("ann@example.org".to_owned())
+        );
+        assert_eq!(row.try_get_by_index::<i64>(2), Ok(1));
+        assert_eq!(row.try_get_by_index::<i64>(3), Ok(2));
+        assert_eq!(row.try_get::<i64>("", "id"), Ok(2));
+        assert_eq!(row.column_names(), ["name", "email", "id", "id"]);
+    }
+
+    /// A proxy that answers each query with one row of the cake table, the name before the id.
+    #[derive(Debug)]
+    struct NameThenId;
+
+    #[async_trait::async_trait]
+    impl ProxyDatabaseTrait for NameThenId {
+        async fn query(&self, _statement: Statement) -> Result<Vec<ProxyRow>, DbErr> {
+            Ok(vec![ProxyRow::from_columns(vec![
+                ("name".to_owned(), "Chocolate".into()),
+                ("id".to_owned(), 1i32.into()),
+            ])])
+        }
+
+        async fn execute(&self, _statement: Statement) -> Result<ProxyExecResult, DbErr> {
+            Ok(ProxyExecResult::default())
+        }
+    }
+
+    #[smol_potat::test]
+    async fn into_tuple_reads_the_columns_in_select_order() {
+        use crate::QuerySelect;
+        let db = Database::connect_proxy(DbBackend::Sqlite, Arc::new(Box::new(NameThenId)))
+            .await
+            .unwrap();
+
+        let tuple: Option<(String, i32)> = cake::Entity::find()
+            .select_only()
+            .column(cake::Column::Name)
+            .column(cake::Column::Id)
+            .into_tuple()
+            .one(&db)
+            .await
+            .unwrap();
+
+        assert_eq!(tuple, Some(("Chocolate".to_owned(), 1)));
     }
 }
