@@ -510,5 +510,6 @@ pub(crate) fn from_sqlx_sqlite_row_to_proxy_row(row: &sqlx::sqlite::SqliteRow) -
                 )
             })
             .collect(),
+        ..Default::default()
     }
 }

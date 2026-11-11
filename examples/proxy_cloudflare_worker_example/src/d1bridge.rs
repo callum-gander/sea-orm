@@ -111,7 +111,7 @@ fn json_to_proxy_row(row: serde_json::Value) -> ProxyRow {
     let mut values = BTreeMap::new();
 
     let Some(obj) = row.as_object() else {
-        return ProxyRow { values };
+        return ProxyRow::new(values);
     };
 
     for (k, v) in obj {
@@ -131,5 +131,5 @@ fn json_to_proxy_row(row: serde_json::Value) -> ProxyRow {
         };
         values.insert(k.clone(), sea_val);
     }
-    ProxyRow { values }
+    ProxyRow::new(values)
 }

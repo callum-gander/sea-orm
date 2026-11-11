@@ -547,5 +547,6 @@ pub(crate) fn from_sqlx_mysql_row_to_proxy_row(row: &sqlx::mysql::MySqlRow) -> c
                 )
             })
             .collect(),
+        ..Default::default()
     }
 }

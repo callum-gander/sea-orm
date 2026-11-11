@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(any(feature = "mock", feature = "proxy"))]
+#[cfg(feature = "mock")]
 use crate::debug_print;
 
 #[cfg(feature = "sqlx-dep")]
@@ -450,10 +450,7 @@ macro_rules! try_getable_all {
                         err_null_idx_col(idx)
                     }),
                     #[cfg(feature = "proxy")]
-                    QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                        debug_print!("{:#?}", e.to_string());
-                        err_null_idx_col(idx)
-                    }),
+                    QueryResultRow::Proxy(row) => row.try_get(idx),
                     #[allow(unreachable_patterns)]
                     _ => unreachable!(),
                 }
@@ -494,10 +491,7 @@ macro_rules! try_getable_unsigned {
                         err_null_idx_col(idx)
                     }),
                     #[cfg(feature = "proxy")]
-                    QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                        debug_print!("{:#?}", e.to_string());
-                        err_null_idx_col(idx)
-                    }),
+                    QueryResultRow::Proxy(row) => row.try_get(idx),
                     #[allow(unreachable_patterns)]
                     _ => unreachable!(),
                 }
@@ -541,10 +535,7 @@ macro_rules! try_getable_mysql {
                         err_null_idx_col(idx)
                     }),
                     #[cfg(feature = "proxy")]
-                    QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                        debug_print!("{:#?}", e.to_string());
-                        err_null_idx_col(idx)
-                    }),
+                    QueryResultRow::Proxy(row) => row.try_get(idx),
                     #[allow(unreachable_patterns)]
                     _ => unreachable!(),
                 }
@@ -589,10 +580,7 @@ macro_rules! try_getable_postgres {
                         err_null_idx_col(idx)
                     }),
                     #[cfg(feature = "proxy")]
-                    QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                        debug_print!("{:#?}", e.to_string());
-                        err_null_idx_col(idx)
-                    }),
+                    QueryResultRow::Proxy(row) => row.try_get(idx),
                     #[allow(unreachable_patterns)]
                     _ => unreachable!(),
                 }
@@ -637,10 +625,7 @@ macro_rules! try_getable_date_time {
                         err_null_idx_col(idx)
                     }),
                     #[cfg(feature = "proxy")]
-                    QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                        debug_print!("{:#?}", e.to_string());
-                        err_null_idx_col(idx)
-                    }),
+                    QueryResultRow::Proxy(row) => row.try_get(idx),
                     #[allow(unreachable_patterns)]
                     _ => unreachable!(),
                 }
@@ -752,10 +737,7 @@ impl TryGetable for Decimal {
             }),
             #[cfg(feature = "proxy")]
             #[allow(unused_variables)]
-            QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                debug_print!("{:#?}", e.to_string());
-                err_null_idx_col(idx)
-            }),
+            QueryResultRow::Proxy(row) => row.try_get(idx),
             #[allow(unreachable_patterns)]
             _ => unreachable!(),
         }
@@ -820,10 +802,7 @@ impl TryGetable for BigDecimal {
             }),
             #[cfg(feature = "proxy")]
             #[allow(unused_variables)]
-            QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                debug_print!("{:#?}", e.to_string());
-                err_null_idx_col(idx)
-            }),
+            QueryResultRow::Proxy(row) => row.try_get(idx),
             #[allow(unreachable_patterns)]
             _ => unreachable!(),
         }
@@ -891,10 +870,7 @@ macro_rules! try_getable_uuid {
                     }),
                     #[cfg(feature = "proxy")]
                     #[allow(unused_variables)]
-                    QueryResultRow::Proxy(row) => row.try_get::<uuid::Uuid, _>(idx).map_err(|e| {
-                        debug_print!("{:#?}", e.to_string());
-                        err_null_idx_col(idx)
-                    }),
+                    QueryResultRow::Proxy(row) => row.try_get::<uuid::Uuid, _>(idx),
                     #[allow(unreachable_patterns)]
                     _ => unreachable!(),
                 };
@@ -975,10 +951,7 @@ impl TryGetable for u32 {
             }),
             #[cfg(feature = "proxy")]
             #[allow(unused_variables)]
-            QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                debug_print!("{:#?}", e.to_string());
-                err_null_idx_col(idx)
-            }),
+            QueryResultRow::Proxy(row) => row.try_get(idx),
             #[allow(unreachable_patterns)]
             _ => unreachable!(),
         }
@@ -1024,10 +997,7 @@ impl TryGetable for String {
                 err_null_idx_col(idx)
             }),
             #[cfg(feature = "proxy")]
-            QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                debug_print!("{:#?}", e.to_string());
-                err_null_idx_col(idx)
-            }),
+            QueryResultRow::Proxy(row) => row.try_get(idx),
             #[allow(unreachable_patterns)]
             _ => unreachable!(),
         }
@@ -1081,10 +1051,7 @@ mod postgres_array {
                         }),
                         #[cfg(feature = "proxy")]
                         #[allow(unused_variables)]
-                        QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                            debug_print!("{:#?}", e.to_string());
-                            err_null_idx_col(idx)
-                        }),
+                        QueryResultRow::Proxy(row) => row.try_get(idx),
                         #[allow(unreachable_patterns)]
                         _ => unreachable!(),
                     }
@@ -1186,12 +1153,7 @@ mod postgres_array {
                             })
                         }
                         #[cfg(feature = "proxy")]
-                        QueryResultRow::Proxy(row) => {
-                            row.try_get::<Vec<uuid::Uuid>, _>(idx).map_err(|e| {
-                                debug_print!("{:#?}", e.to_string());
-                                err_null_idx_col(idx)
-                            })
-                        }
+                        QueryResultRow::Proxy(row) => row.try_get::<Vec<uuid::Uuid>, _>(idx),
                         #[allow(unreachable_patterns)]
                         _ => unreachable!(),
                     };
@@ -1252,10 +1214,7 @@ mod postgres_array {
                 }),
                 #[cfg(feature = "proxy")]
                 #[allow(unused_variables)]
-                QueryResultRow::Proxy(row) => row.try_get(idx).map_err(|e| {
-                    debug_print!("{:#?}", e.to_string());
-                    err_null_idx_col(idx)
-                }),
+                QueryResultRow::Proxy(row) => row.try_get(idx),
                 #[allow(unreachable_patterns)]
                 _ => unreachable!(),
             }
@@ -1289,10 +1248,7 @@ impl TryGetable for pgvector::Vector {
                 err_null_idx_col(idx)
             }),
             #[cfg(feature = "proxy")]
-            QueryResultRow::Proxy(row) => row.try_get::<pgvector::Vector, _>(idx).map_err(|e| {
-                debug_print!("{:#?}", e.to_string());
-                err_null_idx_col(idx)
-            }),
+            QueryResultRow::Proxy(row) => row.try_get::<pgvector::Vector, _>(idx),
             #[allow(unreachable_patterns)]
             _ => unreachable!(),
         }
@@ -1525,15 +1481,11 @@ where
                     serde_json::from_value(json).map_err(|e| crate::error::json_err(e).into())
                 }),
             #[cfg(feature = "proxy")]
-            QueryResultRow::Proxy(row) => row
-                .try_get::<serde_json::Value, I>(idx)
-                .map_err(|e| {
-                    debug_print!("{:#?}", e.to_string());
-                    err_null_idx_col(idx)
-                })
-                .and_then(|json| {
+            QueryResultRow::Proxy(row) => {
+                row.try_get::<serde_json::Value, I>(idx).and_then(|json| {
                     serde_json::from_value(json).map_err(|e| crate::error::json_err(e).into())
-                }),
+                })
+            }
             #[allow(unreachable_patterns)]
             _ => unreachable!(),
         }

@@ -947,5 +947,6 @@ pub(crate) fn from_sqlx_postgres_row_to_proxy_row(row: &sqlx::postgres::PgRow) -
                 )
             })
             .collect(),
+        ..Default::default()
     }
 }
